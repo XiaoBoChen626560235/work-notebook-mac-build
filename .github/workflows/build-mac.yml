@@ -1,0 +1,65 @@
+name: Build Work Notebook for Intel Mac
+'on':
+  workflow_dispatch: null
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-26-intel
+    timeout-minutes: 20
+    steps:
+      - name: Checkout reviewed build inputs
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Unpack reviewed program build inputs
+        working-directory: .
+        run: |-
+          mkdir build-input
+          /usr/bin/unzip -q mac-build-inputs.zip -d build-input
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24'
+          architecture: x64
+      - name: Install pinned packaging tools
+        run: npm ci --no-audit --no-fund
+      - name: Build Intel Mac ZIP
+        run: npm run package:mac
+      - name: Extract the distributable for verification
+        run: |
+          test "$(uname -m)" = "x86_64"
+          /usr/bin/ditto -x -k 'release/工作手记-1.3.0-Mac-Intel.zip' release/verified
+      - name: Verify signatures and launch the extracted app
+        run: node scripts/verify-mac-app.mjs --app 'release/verified/工作手记.app'
+      - name: Verify notes, inline pictures, history, and backup restoration
+        run: node scripts/smoke.mjs --archive 'release/verified/工作手记.app/Contents/Resources/app.asar'
+      - name: Record the distributable hash
+        run: shasum -a 256 'release/工作手记-1.3.0-Mac-Intel.zip' > release/SHA256SUMS.txt
+      - name: Save the verified Mac ZIP and reports
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: work-notebook-1.3.0-Mac-Intel
+          path: |
+            build-input/release/工作手记-1.3.0-Mac-Intel.zip
+            build-input/release/mac-launch-check.json
+            build-input/release/mac-native-smoke.json
+            build-input/release/SHA256SUMS.txt
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+      - name: Save diagnostics if verification fails
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: work-notebook-Mac-diagnostics
+          path: |
+            build-input/release/mac-launch-check.json
+            build-input/release/mac-native-smoke.json
+            build-input/release/mac-launch-stdout.log
+            build-input/release/mac-launch-stderr.log
+          retention-days: 1
+          if-no-files-found: warn
+    defaults:
+      run:
+        working-directory: build-input
